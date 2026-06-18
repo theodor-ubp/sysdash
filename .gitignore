@@ -1,0 +1,33 @@
+# Xcode build artifacts
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Generated
+*.o
+*.d
+*.LinkFileList
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Packages
+.swiftpm/
+Packages/
+Package.resolved
+
+# Secrets / local
+*.pem
+*.p12
