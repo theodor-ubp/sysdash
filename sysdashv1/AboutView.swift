@@ -48,7 +48,7 @@ struct AboutView: View {
                         .foregroundColor(Color(red: 0.6, green: 0.6, blue: 0.6))
                         .font(.system(size: 13))
                     linkButton("GitHub", url: "https://github.com/theodor-ubp/sysdash")
-                    linkButton("Ko-fi", url: "https://ko-fi.com/unboundplanet")
+                    linkButton("Ko-fi", url: "https://ko-fi.com/tehodor9449790")
                 }
                 .padding(.top, 18)
 
