@@ -19,16 +19,16 @@ struct MacmonSocInfo: Codable, Equatable {
     let pcpuFreqs: [UInt32]
     let gpuFreqs: [UInt32]
 
-    var ecpuMaxMHz: Double { Double(ecpuFreqs.last ?? 3000) }
-    var pcpuMaxMHz: Double { Double(pcpuFreqs.last ?? 4500) }
+    var ecpuMaxMHz: Double { Double(ecpuFreqs.max() ?? 3000) }
+    var pcpuMaxMHz: Double { Double(pcpuFreqs.max() ?? 4500) }
     var gpuMaxMHz: Double { Double(gpuFreqs.compactMap { $0 > 0 ? $0 : nil }.max() ?? 1500) }
     var coreLabel: String { "\(ecpuCores)\(ecpuLabel)+\(pcpuCores)\(pcpuLabel)+\(gpuCores)GPU" }
 }
 
 struct MacmonOutput: Codable {
     struct TempMetrics: Codable {
-        let cpuTempAvg: Double
-        let gpuTempAvg: Double
+        let cpuTempAvg: Double?
+        let gpuTempAvg: Double?
     }
     struct MemMetrics: Codable {
         let ramTotal: UInt64
@@ -39,10 +39,13 @@ struct MacmonOutput: Codable {
 
     let temp: TempMetrics
     let memory: MemMetrics
-    let ecpuUsage: [Double]   // [freq_mhz, usage_ratio 0-1]
-    let pcpuUsage: [Double]   // [freq_mhz, usage_ratio 0-1]
-    let cpuUsagePct: Double   // combined weighted 0-1
-    let gpuUsage: [Double]    // [freq_mhz, usage_ratio 0-1]
+    let ecpuFreqMhz: Double
+    let pcpuFreqMhz: Double
+    let gpuFreqMhz: Double
+    let ecpuActiveRatio: Double
+    let pcpuActiveRatio: Double
+    let cpuActiveRatio: Double
+    let gpuActiveRatio: Double
     let cpuPower: Double      // Watts
     let gpuPower: Double
     let anePower: Double
@@ -52,18 +55,22 @@ struct MacmonOutput: Codable {
     let gpuRamPower: Double
     let soc: MacmonSocInfo?
 
-    var ecpuFreqMHz: Double  { ecpuUsage.first ?? 0 }
-    var ecpuPct: Double      { (ecpuUsage.count > 1 ? ecpuUsage[1] : 0) * 100 }
-    var pcpuFreqMHz: Double  { pcpuUsage.first ?? 0 }
-    var pcpuPct: Double      { (pcpuUsage.count > 1 ? pcpuUsage[1] : 0) * 100 }
-    var gpuFreqMHz: Double   { gpuUsage.first ?? 0 }
-    var gpuPct: Double       { (gpuUsage.count > 1 ? gpuUsage[1] : 0) * 100 }
-    var cpuPct: Double       { cpuUsagePct * 100 }
+    var ecpuFreqMHz: Double  { ecpuFreqMhz }
+    var ecpuPct: Double      { ecpuActiveRatio * 100 }
+    var pcpuFreqMHz: Double  { pcpuFreqMhz }
+    var pcpuPct: Double      { pcpuActiveRatio * 100 }
+    var gpuFreqMHz: Double   { gpuFreqMhz }
+    var gpuPct: Double       { gpuActiveRatio * 100 }
+    var cpuPct: Double       { cpuActiveRatio * 100 }
     var ramUsedGB: Double    { Double(memory.ramUsage) / 1_073_741_824 }
     var ramTotalGB: Double   { Double(memory.ramTotal) / 1_073_741_824 }
     var swapUsedGB: Double   { Double(memory.swapUsage) / 1_073_741_824 }
     var swapTotalGB: Double  { Double(memory.swapTotal) / 1_073_741_824 }
     var ramPct: Double       { ramTotalGB > 0 ? (ramUsedGB / ramTotalGB) * 100 : 0 }
+}
+
+func formatTemperature(_ value: Double?, suffix: String = "°") -> String {
+    value.map { String(format: "%.0f%@", $0, suffix) } ?? "—"
 }
 
 // MARK: - Ring buffer (60 samples, 0–1 normalised)
@@ -91,11 +98,15 @@ private struct HistoryBuf {
 class SystemMonitor: ObservableObject {
 
     // macmon-powered metrics
-    @Published var macmon: MacmonOutput?
+    @Published var macmon: MacmonOutput? {
+        didSet { if let soc = macmon?.soc, socInfo != soc { socInfo = soc } }
+    }
+    @Published var socInfo: MacmonSocInfo?
     @Published var macmonError: String?
     @Published var macmonRunning = false
 
     // Battery (polled separately via IOKit)
+    @Published var hasBattery = false
     @Published var batteryLevel: Double = 0
     @Published var isOnBattery = false
     @Published var isCharging = false
@@ -147,24 +158,24 @@ class SystemMonitor: ObservableObject {
     // Refresh interval (ms)
     @Published var intervalMs: Int {
         didSet {
-            UserDefaults.standard.set(intervalMs, forKey: "sysdash.intervalMs")
+            guard intervalMs != oldValue else { return }
+            defaults.set(intervalMs, forKey: "sysdash.intervalMs")
             restartMacmon()
         }
     }
 
-    private let macmonPort = 19191
+    private let defaults: UserDefaults
+    private let macmonPath: String?
     private var macmonProcess: Process?
-    private var pollSub: AnyCancellable?
     private var auxSub: AnyCancellable?
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
-    }()
+    private var generation = UUID()
+    private var macmonStderr = ""
 
-    init() {
-        let saved = UserDefaults.standard.integer(forKey: "sysdash.intervalMs")
-        intervalMs = saved > 100 ? saved : 1000
+    init(macmonPath: String? = nil, defaults: UserDefaults = .standard) {
+        self.macmonPath = macmonPath
+        self.defaults = defaults
+        let saved = defaults.integer(forKey: "sysdash.intervalMs")
+        intervalMs = [500, 1000, 2000, 5000].contains(saved) ? saved : 1000
         startMacmon()
         fetchBattery()
         fetchDisk()
@@ -176,23 +187,38 @@ class SystemMonitor: ObservableObject {
     // MARK: - macmon lifecycle
 
     private func startMacmon() {
-        guard let path = findMacmon() else {
-            macmonError = "macmon binary not found.\nInstall: brew install vladkens/tap/macmon\nor place binary at ~/Downloads/macmon/macmon"
+        guard let path = macmonPath ?? findMacmon() else {
+            macmonError = "macmon binary not found. Reinstall UP Sysdash."
             macmonRunning = false
             return
         }
 
         let p = Process()
+        generation = UUID()
+        let token = generation
+        let output = Pipe()
+        let errors = Pipe()
         p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = ["serve", "--port", "\(macmonPort)", "-i", "\(max(500, intervalMs))"]
-        p.standardOutput = Pipe()
-        p.standardError = Pipe()
+        p.arguments = ["pipe", "--soc-info", "-i", "\(max(500, intervalMs))"]
+        p.standardOutput = output
+        p.standardError = errors
+        macmonStderr = ""
 
         p.terminationHandler = { [weak self] proc in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                guard let self, self.macmonProcess === proc else { return }
+            DispatchQueue.main.async {
+                guard let self, self.generation == token else { return }
                 self.macmonProcess = nil
-                self.startMacmon()
+                self.generation = UUID()
+                let retryToken = self.generation
+                self.macmonRunning = false
+                self.macmon = nil
+                self.macmonError = self.macmonStderr.isEmpty
+                    ? "macmon exited (status \(proc.terminationStatus)). Retrying…"
+                    : self.macmonStderr
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    guard let self, self.generation == retryToken else { return }
+                    self.startMacmon()
+                }
             }
         }
 
@@ -200,92 +226,80 @@ class SystemMonitor: ObservableObject {
             try p.run()
             macmonProcess = p
             macmonError = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                self?.startPolling()
-            }
         } catch {
             macmonError = "Failed to launch macmon: \(error.localizedDescription)"
             macmonRunning = false
+            return
+        }
+
+        // Each reader owns its decoder and buffer. Generation checks prevent an
+        // old helper's queued output from overwriting a restarted helper's data.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            var pending = Data()
+            while true {
+                let chunk = output.fileHandleForReading.availableData
+                guard !chunk.isEmpty else { break }
+                pending.append(chunk)
+                while let newline = pending.firstIndex(of: 0x0A) {
+                    let line = Data(pending[..<newline])
+                    pending.removeSubrange(...newline)
+                    guard !line.isEmpty else { continue }
+                    do {
+                        let metrics = try decoder.decode(MacmonOutput.self, from: line)
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.generation == token else { return }
+                            self.macmon = metrics
+                            self.macmonError = nil
+                            self.macmonRunning = true
+                            self.recordHistory(metrics)
+                            self.updateNetwork()
+                        }
+                    } catch {
+                        let message = "Cannot read macmon metrics: \(error.localizedDescription)"
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, self.generation == token else { return }
+                            self.macmonRunning = false
+                            self.macmon = nil
+                            self.macmonError = message
+                        }
+                    }
+                }
+            }
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            while true {
+                let chunk = errors.fileHandleForReading.availableData
+                guard !chunk.isEmpty else { break }
+                let message = String(decoding: chunk, as: UTF8.self)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.generation == token else { return }
+                    self.macmonStderr = String((self.macmonStderr + message).suffix(4096))
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
         }
     }
 
     private func stopMacmon() {
-        pollSub?.cancel()
-        pollSub = nil
+        generation = UUID()
         macmonProcess?.terminationHandler = nil
-        macmonProcess?.terminate()
+        if macmonProcess?.isRunning == true { macmonProcess?.terminate() }
         macmonProcess = nil
         macmonRunning = false
+        macmon = nil
+    }
+
+    func shutdown() {
+        auxSub?.cancel()
+        auxSub = nil
+        stopMacmon()
     }
 
     private func restartMacmon() {
         stopMacmon()
         startMacmon()
-    }
-
-    private func startPolling() {
-        let interval = TimeInterval(max(500, intervalMs)) / 1000.0
-        pollSub = Timer.publish(every: interval, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in self?.poll() }
-        poll()
-    }
-
-    private func poll() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            guard let body = self.fetchViaSocket() else {
-                DispatchQueue.main.async { self.macmonRunning = false }
-                return
-            }
-            guard let m = try? self.decoder.decode(MacmonOutput.self, from: body) else { return }
-            DispatchQueue.main.async {
-                self.macmon = m
-                self.macmonError = nil
-                self.macmonRunning = true
-                self.recordHistory(m)
-                self.updateNetwork()
-            }
-        }
-    }
-
-    private func fetchViaSocket() -> Data? {
-        let sockfd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard sockfd >= 0 else { return nil }
-        defer { Darwin.close(sockfd) }
-
-        // 1.5 s send + receive timeout
-        var tv = timeval(tv_sec: 1, tv_usec: 500_000)
-        let tvLen = socklen_t(MemoryLayout<timeval>.size)
-        Darwin.setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, tvLen)
-        Darwin.setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &tv, tvLen)
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port   = in_port_t(macmonPort).bigEndian
-        Darwin.inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr)
-        let connected = withUnsafePointer(to: addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(sockfd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard connected == 0 else { return nil }
-
-        let req = "GET /json HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
-        _ = req.withCString { Darwin.send(sockfd, $0, Darwin.strlen($0), 0) }
-
-        var response = Data()
-        var buf = [UInt8](repeating: 0, count: 8192)
-        while true {
-            let n = Darwin.recv(sockfd, &buf, buf.count, 0)
-            guard n > 0 else { break }
-            response.append(contentsOf: buf.prefix(n))
-        }
-
-        let sep = Data([0x0D, 0x0A, 0x0D, 0x0A])
-        guard let range = response.range(of: sep) else { return nil }
-        let body = response[range.upperBound...]
-        return body.isEmpty ? nil : Data(body)
     }
 
     // MARK: - History recording
@@ -295,8 +309,8 @@ class SystemMonitor: ObservableObject {
         ecpuBuf.push(m.ecpuPct / 100)
         pcpuBuf.push(m.pcpuPct / 100)
         gpuBuf.push(m.gpuPct / 100)
-        cpuTempBuf.push(m.temp.cpuTempAvg / 100)
-        gpuTempBuf.push(m.temp.gpuTempAvg / 100)
+        if let temperature = m.temp.cpuTempAvg { cpuTempBuf.push(temperature / 100) }
+        if let temperature = m.temp.gpuTempAvg { gpuTempBuf.push(temperature / 100) }
         cpuPowerBuf.push(m.cpuPower / 30)
         gpuPowerBuf.push(m.gpuPower / 20)
         anePowerBuf.push(m.anePower / 8)
@@ -307,8 +321,8 @@ class SystemMonitor: ObservableObject {
         ecpuHistory     = ecpuBuf.samples
         pcpuHistory     = pcpuBuf.samples
         gpuHistory      = gpuBuf.samples
-        cpuTempHistory  = cpuTempBuf.samples
-        gpuTempHistory  = gpuTempBuf.samples
+        cpuTempHistory  = m.temp.cpuTempAvg == nil ? [] : cpuTempBuf.samples
+        gpuTempHistory  = m.temp.gpuTempAvg == nil ? [] : gpuTempBuf.samples
         cpuPowerHistory = cpuPowerBuf.samples
         gpuPowerHistory = gpuPowerBuf.samples
         anePowerHistory = anePowerBuf.samples
@@ -324,8 +338,8 @@ class SystemMonitor: ObservableObject {
         let dt = now.timeIntervalSince(lastNetDate)
 
         if lastNetDate != .distantPast && dt > 0 {
-            let upBps   = Double(tx &- lastNetTx) / dt
-            let downBps = Double(rx &- lastNetRx) / dt
+            let upBps   = Double(tx >= lastNetTx ? tx - lastNetTx : 0) / dt
+            let downBps = Double(rx >= lastNetRx ? rx - lastNetRx : 0) / dt
             networkUpBps   = max(0, upBps)
             networkDownBps = max(0, downBps)
 
@@ -392,12 +406,16 @@ class SystemMonitor: ObservableObject {
             let ps = list.first,
             let desc = IOPSGetPowerSourceDescription(info, ps)?.takeUnretainedValue() as? [String: Any]
         else {
-            batteryLevel = 0; isOnBattery = false; isCharging = false
+            hasBattery = false; batteryLevel = 0; isOnBattery = false; isCharging = false
             return
         }
         if let curr = desc[kIOPSCurrentCapacityKey] as? Int,
            let max  = desc[kIOPSMaxCapacityKey] as? Int, max > 0 {
+            hasBattery = true
             batteryLevel = Double(curr) / Double(max) * 100
+        } else {
+            hasBattery = false
+            batteryLevel = 0
         }
         if let state = desc[kIOPSPowerSourceStateKey] as? String {
             isOnBattery = state == kIOPSBatteryPowerValue

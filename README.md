@@ -97,6 +97,27 @@ You only do this once.
 
 UP Sysdash uses [macmon](https://github.com/vladkens/macmon) to read Apple Silicon performance counters. The macmon binary ships inside the app bundle - no Homebrew or separate install needed.
 
+Version 1.1 bundles **macmon 0.9.0**, including its macOS 27 power-counter fixes. CPU and GPU percentages show active residency; CPU usage is weighted by core count. Unavailable temperatures display as `—`.
+
+The app checks for updates on launch. From 1.1 onward, the Download button opens the DMG download directly. Installed 1.0 copies detect newer releases automatically, but their existing Download button opens the release page.
+
+Metrics arrive through macmon's JSON pipe. Each app owns its helper process, restarts it after an unexpected exit, and stops it on quit.
+
+## Build and check
+
+```sh
+xcodebuild -project sysdashv1.xcodeproj -scheme sysdashv1 -configuration Release -derivedDataPath build ARCHS=arm64 build
+Tests/run-smoke-tests.sh
+Tests/run-interface-tests.sh
+Tests/run-update-checker-tests.sh
+```
+
+The smoke check runs the production monitor against the bundled helper and exercises JSON decoding, nullable temperatures, live readings, refresh changes, crash recovery, and process cleanup. It requires an Apple Silicon Mac with working macmon power counters.
+
+The interface check verifies fixed refresh-control geometry through changing readings and selections at multiple window sizes and in light/dark appearances.
+
+Package a release with `scripts/build-dmg.sh 1.1`. The script builds the app and creates a DMG with a small PNG background and saved Finder layout. Pass a validated `.app` path as the second argument to package that exact build. Packaging dependencies stay in `.artifacts/`.
+
 ---
 
 ## License

@@ -1,0 +1,6 @@
+macmon 0.9.0
+Release: https://github.com/vladkens/macmon/releases/tag/v0.9.0
+Source commit: 7df49f55d9a1b9072e31fc8ba991abda84593563
+Official release archive: macmon-v0.9.0.tar.gz
+Archive SHA-256: 539d8a39dc4c3823d68410de1c270289790826d983b005b91b2a4441008108bb
+License: MIT (macmon-LICENSE.txt)

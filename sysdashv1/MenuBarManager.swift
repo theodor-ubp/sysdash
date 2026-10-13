@@ -124,14 +124,14 @@ final class MenuBarManager: ObservableObject {
         if let m = monitor.macmon {
             if settings.showCPU     { parts.append(String(format: "CPU %.0f%%",   m.cpuPct)) }
             if settings.showGPU     { parts.append(String(format: "GPU %.0f%%",   m.gpuPct)) }
-            if settings.showCPUTemp { parts.append(String(format: "%.0f°",        m.temp.cpuTempAvg)) }
-            if settings.showGPUTemp { parts.append(String(format: "G%.0f°",       m.temp.gpuTempAvg)) }
+            if settings.showCPUTemp { parts.append(formatTemperature(m.temp.cpuTempAvg)) }
+            if settings.showGPUTemp { parts.append("G" + formatTemperature(m.temp.gpuTempAvg)) }
             if settings.showRAM     { parts.append(String(format: "%.1fGB",       m.ramUsedGB)) }
             if settings.showPower   { parts.append(String(format: "%.0fW",        m.sysPower)) }
         }
         if settings.showBattery {
             let icon = monitor.isCharging ? "⚡" : (monitor.isOnBattery ? "🔋" : "")
-            parts.append(String(format: "%@%.0f%%", icon, monitor.batteryLevel))
+            parts.append(monitor.hasBattery ? String(format: "%@%.0f%%", icon, monitor.batteryLevel) : "Battery —")
         }
         if settings.showNetDown { parts.append(formatNetShort(monitor.networkDownBps, prefix: "↓")) }
         if settings.showNetUp   { parts.append(formatNetShort(monitor.networkUpBps,   prefix: "↑")) }
@@ -225,10 +225,15 @@ final class MenuBarManager: ObservableObject {
 
     func setWindowLevel(floating: Bool) {
         mainWindow?.level = floating ? .floating : .normal
+        settingsWindow?.level = floating ? .floating : .normal
     }
 
     @objc private func openSettingsFromMenu() {
         openSettings()
+    }
+
+    @objc private func checkForUpdatesFromMenu() {
+        UpdateChecker.shared.checkForUpdates(showIfUpToDate: true)
     }
 
     func openSettings() {
@@ -246,6 +251,7 @@ final class MenuBarManager: ObservableObject {
         }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.level = mainWindow?.level ?? .normal
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
@@ -261,8 +267,7 @@ final class MenuBarManager: ObservableObject {
             gpu.isEnabled = false
             menu.addItem(gpu)
 
-            let temps = NSMenuItem(title: String(format: "CPU %.0f°  GPU %.0f°",
-                                                 m.temp.cpuTempAvg, m.temp.gpuTempAvg),
+            let temps = NSMenuItem(title: "CPU \(formatTemperature(m.temp.cpuTempAvg))  GPU \(formatTemperature(m.temp.gpuTempAvg))",
                                    action: nil, keyEquivalent: "")
             temps.isEnabled = false
             menu.addItem(temps)
@@ -288,7 +293,7 @@ final class MenuBarManager: ObservableObject {
                 menu.addItem(net)
             }
 
-            if mon.batteryLevel > 0 {
+            if mon.hasBattery {
                 let icon = mon.isCharging ? "⚡" : (mon.isOnBattery ? "🔋" : "🔌")
                 let bat = NSMenuItem(title: String(format: "Battery  %@%.0f%%", icon, mon.batteryLevel),
                                      action: nil, keyEquivalent: "")
@@ -306,6 +311,10 @@ final class MenuBarManager: ObservableObject {
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesFromMenu), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
 
         menu.addItem(.separator())
 

@@ -42,10 +42,11 @@ class MinSizeWindowDelegate: NSObject, NSWindowDelegate {
         return false
     }
 
-    @objc func windowShouldMiniaturize(_ sender: NSWindow) -> Bool {
+    func windowDidMiniaturize(_ notification: Notification) {
+        guard let sender = notification.object as? NSWindow else { return }
+        sender.deminiaturize(nil)
         sender.orderOut(nil)
         retractToAccessoryIfIdle()
-        return false
     }
 
     private func retractToAccessoryIfIdle() {
@@ -233,11 +234,12 @@ struct ContentView: View {
 
     @State private var alwaysOnTop = false
     @State private var infoWindow: NSWindow?
+    @State private var infoWindowDelegate: MinSizeWindowDelegate?
     @State private var livePulse = false
 
 
     private var m: MacmonOutput? { monitor.macmon }
-    private var soc: MacmonSocInfo? { m?.soc }
+    private var soc: MacmonSocInfo? { monitor.socInfo }
 
     // MARK: Body
 
@@ -297,11 +299,8 @@ struct ContentView: View {
                     .fill(monitor.macmonRunning ? Color.mint : Color.red)
                     .frame(width: 7, height: 7)
                     .opacity(monitor.macmonRunning ? (livePulse ? 0.3 : 1.0) : 1.0)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                            livePulse = true
-                        }
-                    }
+                    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: livePulse)
+                    .onAppear { livePulse = true }
                 Text(monitor.macmonRunning ? "Live" : "Offline")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -335,7 +334,7 @@ struct ContentView: View {
             MetricCard(
                 label: "CPU",
                 value: m.map { String(format: "%.1f%%", $0.cpuPct) } ?? "—",
-                detail: "E+P weighted",
+                detail: "Active, core-weighted",
                 progress: cpuPct / 100,
                 tint: usageColor(cpuPct, normal: .mint),
                 history: monitor.cpuHistory
@@ -369,7 +368,7 @@ struct ContentView: View {
             let cpuTemp = m?.temp.cpuTempAvg ?? 0
             MetricCard(
                 label: "CPU TEMP",
-                value: m.map { String(format: "%.0f °C", $0.temp.cpuTempAvg) } ?? "—",
+                value: formatTemperature(m?.temp.cpuTempAvg, suffix: " °C"),
                 detail: nil,
                 progress: cpuTemp / 100,
                 tint: tempColor(cpuTemp),
@@ -408,7 +407,7 @@ struct ContentView: View {
             let gpuTemp = m?.temp.gpuTempAvg ?? 0
             MetricCard(
                 label: "GPU TEMP",
-                value: m.map { String(format: "%.0f °C", $0.temp.gpuTempAvg) } ?? "—",
+                value: formatTemperature(m?.temp.gpuTempAvg, suffix: " °C"),
                 detail: nil,
                 progress: gpuTemp / 100,
                 tint: tempColor(gpuTemp),
@@ -486,8 +485,8 @@ struct ContentView: View {
             let batColor = batteryColor(monitor.batteryLevel, onBattery: monitor.isOnBattery)
             MetricCard(
                 label: "BATTERY",
-                value: String(format: "%.0f%%", monitor.batteryLevel),
-                detail: monitor.isCharging ? "Charging ⚡" : (monitor.isOnBattery ? "On battery 🔋" : "Plugged in 🔌"),
+                value: monitor.hasBattery ? String(format: "%.0f%%", monitor.batteryLevel) : "—",
+                detail: monitor.hasBattery ? (monitor.isCharging ? "Charging ⚡" : (monitor.isOnBattery ? "On battery 🔋" : "Plugged in 🔌")) : "No battery",
                 progress: monitor.batteryLevel / 100,
                 tint: batColor
             )
@@ -513,16 +512,12 @@ struct ContentView: View {
                 Text("Refresh")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                Picker("", selection: $monitor.intervalMs) {
-                    Text("0.5s").tag(500)
-                    Text("1s").tag(1000)
-                    Text("2s").tag(2000)
-                    Text("5s").tag(5000)
-                }
-                .pickerStyle(.segmented)
+                    .fixedSize()
+                RefreshIntervalPicker(selection: $monitor.intervalMs)
                 .frame(width: 170)
-                .labelsHidden()
+                .fixedSize(horizontal: false, vertical: true)
             }
+            .fixedSize()
 
             Spacer()
 
@@ -541,6 +536,7 @@ struct ContentView: View {
                 .font(.system(size: 11))
                 .onChange(of: alwaysOnTop) { on in
                     menuBar.setWindowLevel(floating: on)
+                    infoWindow?.level = on ? .floating : .normal
                 }
         }
     }
@@ -549,7 +545,7 @@ struct ContentView: View {
 
     private func openInfoWindow() {
         if infoWindow == nil {
-            let vc = NSHostingController(rootView: InfoWindowView(soc: soc))
+            let vc = NSHostingController(rootView: InfoWindowView(monitor: monitor))
             let win = NSWindow(contentViewController: vc)
             win.title = "Hardware Info"
             win.styleMask = [.titled, .closable, .resizable]
@@ -557,6 +553,9 @@ struct ContentView: View {
             win.center()
             win.isRestorable = false
             win.setFrameAutosaveName("")
+            let delegate = MinSizeWindowDelegate(minSize: NSSize(width: 380, height: 260))
+            win.delegate = delegate
+            infoWindowDelegate = delegate
             infoWindow = win
         }
         infoWindow?.level = alwaysOnTop ? .floating : .normal
@@ -567,7 +566,8 @@ struct ContentView: View {
 // MARK: - Hardware info window
 
 struct InfoWindowView: View {
-    let soc: MacmonSocInfo?
+    @ObservedObject var monitor: SystemMonitor
+    private var soc: MacmonSocInfo? { monitor.socInfo }
 
     @State private var modelID    = "…"
     @State private var storageFreeGB: Double = 0
@@ -575,7 +575,8 @@ struct InfoWindowView: View {
     @State private var storageType = "…"
 
     private struct Row: Identifiable {
-        let id = UUID(); let name: String; let value: String
+        let name: String; let value: String
+        var id: String { name }
     }
 
     private var rows: [Row] {
@@ -583,8 +584,8 @@ struct InfoWindowView: View {
         r.append(Row(name: "Model",         value: modelID))
         if let s = soc {
             r.append(Row(name: "Chip",       value: s.chipName))
-            r.append(Row(name: "E-Cores",    value: "\(s.ecpuCores) × \(s.ecpuLabel)  max \(Int(s.ecpuMaxMHz)) MHz"))
-            r.append(Row(name: "P-Cores",    value: "\(s.pcpuCores) × \(s.pcpuLabel)  max \(Int(s.pcpuMaxMHz)) MHz"))
+            r.append(Row(name: "\(s.ecpuLabel)-Cores", value: "\(s.ecpuCores) × \(s.ecpuLabel)  max \(Int(s.ecpuMaxMHz)) MHz"))
+            r.append(Row(name: "\(s.pcpuLabel)-Cores", value: "\(s.pcpuCores) × \(s.pcpuLabel)  max \(Int(s.pcpuMaxMHz)) MHz"))
             r.append(Row(name: "GPU Cores",  value: "\(s.gpuCores) cores  max \(Int(s.gpuMaxMHz)) MHz"))
             r.append(Row(name: "Memory",     value: "\(s.memoryGb) GB unified"))
         }

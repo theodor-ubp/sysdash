@@ -47,25 +47,14 @@ struct OnboardingView: View {
             .padding(.bottom, 24)
         }
         .frame(width: 400)
-        .onDisappear { onboardingDone = true }
     }
 
     @ViewBuilder
     private var loginAction: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Toggle("", isOn: $loginEnabled)
+            Toggle("", isOn: loginBinding)
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .onChange(of: loginEnabled) { enabled in
-                    do {
-                        if enabled { try LoginItemManager.enable() }
-                        else       { try LoginItemManager.disable() }
-                        loginError = nil
-                    } catch {
-                        loginError = error.localizedDescription
-                        loginEnabled = !enabled
-                    }
-                }
             if let err = loginError {
                 Text(err)
                     .font(.system(size: 9))
@@ -78,6 +67,19 @@ struct OnboardingView: View {
     private func finish() {
         onboardingDone = true
         isPresented = false
+    }
+
+    private var loginBinding: Binding<Bool> {
+        Binding(get: { loginEnabled }, set: { enabled in
+            do {
+                if enabled { try LoginItemManager.enable() }
+                else { try LoginItemManager.disable() }
+                loginEnabled = enabled
+                loginError = nil
+            } catch {
+                loginError = error.localizedDescription
+            }
+        })
     }
 
     private func onboardingCard<Action: View>(

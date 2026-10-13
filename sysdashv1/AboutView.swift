@@ -5,6 +5,7 @@ import AppKit
 
 enum AboutWindowHelper {
     private static var window: NSWindow?
+    private static let delegate = MinSizeWindowDelegate(minSize: NSSize(width: 500, height: 370))
 
     static func open() {
         if window == nil {
@@ -16,8 +17,12 @@ enum AboutWindowHelper {
             win.setFrameAutosaveName("")
             win.setContentSize(NSSize(width: 500, height: 370))
             win.center()
+            win.delegate = delegate
             window = win
         }
+        window?.level = NSApp.windows.contains { $0.isVisible && $0.level == .floating } ? .floating : .normal
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }
 }
@@ -78,6 +83,12 @@ struct AboutView: View {
                 }
                 .font(.system(size: 11))
                 .padding(.top, 14)
+
+                Button("Check for Updates…") {
+                    UpdateChecker.shared.checkForUpdates(showIfUpToDate: true)
+                }
+                .font(.system(size: 11))
+                .padding(.top, 10)
 
                 Spacer()
             }

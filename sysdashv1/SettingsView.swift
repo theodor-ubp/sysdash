@@ -83,14 +83,8 @@ struct SettingsView: View {
             settingsGroupHeader("Refresh Interval")
             settingsGroup {
                 VStack(alignment: .leading, spacing: 6) {
-                    Picker("", selection: $monitor.intervalMs) {
-                        Text("0.5 s").tag(500)
-                        Text("1 s").tag(1000)
-                        Text("2 s").tag(2000)
-                        Text("5 s").tag(5000)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    RefreshIntervalPicker(selection: $monitor.intervalMs)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text("Lower intervals use more CPU. 1 s recommended.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -99,17 +93,7 @@ struct SettingsView: View {
             settingsGroupHeader("Startup")
             settingsGroup {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Launch at Login", isOn: $launchAtLogin)
-                        .onChange(of: launchAtLogin) { enabled in
-                            do {
-                                if enabled { try LoginItemManager.enable() }
-                                else       { try LoginItemManager.disable() }
-                                launchError = nil
-                            } catch {
-                                launchError = error.localizedDescription
-                                launchAtLogin = !enabled
-                            }
-                        }
+                    Toggle("Launch at Login", isOn: loginBinding)
                     if let err = launchError {
                         Text(err).font(.caption).foregroundStyle(.red)
                     }
@@ -140,6 +124,19 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private var loginBinding: Binding<Bool> {
+        Binding(get: { launchAtLogin }, set: { enabled in
+            do {
+                if enabled { try LoginItemManager.enable() }
+                else { try LoginItemManager.disable() }
+                launchAtLogin = enabled
+                launchError = nil
+            } catch {
+                launchError = error.localizedDescription
+            }
+        })
+    }
 
     private func settingsGroupHeader(_ title: String) -> some View {
         Text(title)

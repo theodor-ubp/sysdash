@@ -26,13 +26,13 @@ final class UpdateChecker {
                 return
             }
 
-            let latest  = release.tagName.drop(while: { $0 == "v" }).description
+            let latest  = release.version
             let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
             let isNewer = latest.compare(current, options: .numeric) == .orderedDescending
 
             DispatchQueue.main.async {
                 if isNewer {
-                    self.showUpdateAvailable(version: latest, releaseURL: release.htmlUrl)
+                    self.showUpdateAvailable(version: latest, downloadURL: release.downloadURL)
                 } else if showIfUpToDate {
                     self.showUpToDate(current: current)
                 }
@@ -42,16 +42,21 @@ final class UpdateChecker {
 
     // MARK: - Alerts
 
-    private func showUpdateAvailable(version: String, releaseURL: String) {
+    private func showUpdateAvailable(version: String, downloadURL: URL?) {
         let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
         let alert = NSAlert()
         alert.messageText = "UP Sysdash \(version) is Available"
+        guard let downloadURL else {
+            alert.informativeText = "A compatible installer is not available yet. Please check again later."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
         alert.informativeText = "You have version \(current). Would you like to download the update?"
         alert.addButton(withTitle: "Download")
         alert.addButton(withTitle: "Later")
-        if alert.runModal() == .alertFirstButtonReturn,
-           let u = URL(string: releaseURL) {
-            NSWorkspace.shared.open(u)
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(downloadURL)
         }
     }
 
@@ -74,12 +79,32 @@ final class UpdateChecker {
 
 // MARK: - GitHub API model
 
-private struct GitHubRelease: Decodable {
+struct GitHubRelease: Decodable {
+    struct Asset: Decodable {
+        let name: String
+        let browserDownloadURL: URL
+
+        private enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+        }
+    }
+
     let tagName: String
     let htmlUrl: String
+    let assets: [Asset]
+
+    var version: String { tagName.drop(while: { $0 == "v" }).description }
+
+    var downloadURL: URL? {
+        assets.first {
+            $0.name.lowercased().hasSuffix(".dmg") && $0.browserDownloadURL.scheme == "https"
+        }?.browserDownloadURL
+    }
 
     private enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
         case htmlUrl = "html_url"
+        case assets
     }
 }
