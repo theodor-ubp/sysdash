@@ -18,6 +18,11 @@ enum InterfaceSmokeTests {
     }
 
     static func main() throws {
+        let specialPath = "/Applications/A&B <Sysdash>.app"
+        let loginData = try LaunchAgentHelper.plistData(appPath: specialPath, bundleID: "test.sysdash")
+        let loginPlist = try PropertyListSerialization.propertyList(from: loginData, options: [], format: nil) as! [String: Any]
+        check((loginPlist["ProgramArguments"] as? [String]) == ["/usr/bin/open", "-a", specialPath], "Login plist must preserve special characters in app paths")
+        print("PASS: legacy login plist escapes app paths without changing login registration")
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let suite = "sysdash.interface.\(UUID().uuidString)"
@@ -94,7 +99,7 @@ enum InterfaceSmokeTests {
         print("PASS: native refresh control actions map all four intervals correctly")
 
         let settings = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(menuBar: menuBar, monitor: monitor)))
-        settings.setContentSize(NSSize(width: 368, height: 548))
+        settings.setContentSize(NSSize(width: 720, height: 600))
         settle(settings)
         check(settings.contentView != nil, "Settings view did not lay out")
         let info = NSWindow(contentViewController: NSHostingController(rootView: InfoWindowView(monitor: monitor)))
@@ -107,5 +112,28 @@ enum InterfaceSmokeTests {
         settle(info)
         check(monitor.socInfo != nil, "Hardware metadata disappeared during an offline transition")
         print("PASS: Settings and Hardware Info lay out; Hardware Info observes arriving metrics")
+
+        let fixtures = URL(fileURLWithPath: CommandLine.arguments[2])
+        for name in ["m6", "m5", "m5-pro", "vm"] {
+            let sample = try decoder.decode(MacmonOutput.self, from: Data(contentsOf: fixtures.appendingPathComponent(name + ".json")))
+            monitor.macmon = sample
+            monitor.macmonRunning = true
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                window.appearance = NSAppearance(named: appearance)
+                for width in [700.0, 820.0, 1200.0] {
+                    window.setContentSize(NSSize(width: width, height: 570))
+                    for style in CardChartStyle.allCases {
+                        menuBar.cardCharts.applyToAll(style)
+                        settle(window)
+                        let picker = pickers(in: window.contentView!).first!
+                        check(abs(picker.frame.width - 170) < 0.5, "\(name)/\(style) changed footer geometry")
+                    }
+                }
+            }
+            settle(info)
+            info.setContentSize(NSSize(width: 420, height: 340))
+            settle(info)
+            print("PASS: \(name) all five chart styles and fixed picker at 700/820/1200 widths in light/dark")
+        }
     }
 }

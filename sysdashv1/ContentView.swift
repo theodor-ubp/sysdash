@@ -64,30 +64,39 @@ class MinSizeWindowDelegate: NSObject, NSWindowDelegate {
 struct Sparkline: View {
     let data: [Double]   // 0–1 normalised
     let tint: Color
+    var area = false
 
     var body: some View {
         Canvas { ctx, size in
             guard data.count > 1 else { return }
-            let w = size.width
-            let h = size.height
+            // Keep strokes and the 2.5-point endpoint inside the chart itself.
+            let inset: CGFloat = 3
+            let w = size.width - inset * 2
+            let h = size.height - inset * 2
+            guard w > 0, h > 0 else { return }
             let step = w / CGFloat(data.count - 1)
+
+            func yPosition(_ value: Double) -> CGFloat {
+                let normalised = value.isFinite ? min(max(value, 0), 1) : 0
+                return inset + h - CGFloat(normalised) * h
+            }
 
             var path = Path()
             for (i, v) in data.enumerated() {
-                let x = CGFloat(i) * step
-                let y = h - CGFloat(min(max(v, 0), 1)) * h
+                let x = inset + CGFloat(i) * step
+                let y = yPosition(v)
                 if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                 else       { path.addLine(to: CGPoint(x: x, y: y)) }
             }
 
             var fill = path
-            let lastX = CGFloat(data.count - 1) * step
-            fill.addLine(to: CGPoint(x: lastX, y: h))
-            fill.addLine(to: CGPoint(x: 0, y: h))
+            let lastX = inset + CGFloat(data.count - 1) * step
+            fill.addLine(to: CGPoint(x: lastX, y: inset + h))
+            fill.addLine(to: CGPoint(x: inset, y: inset + h))
             fill.closeSubpath()
 
             ctx.fill(fill, with: .linearGradient(
-                Gradient(colors: [tint.opacity(0.22), tint.opacity(0.0)]),
+                Gradient(colors: [tint.opacity(area ? 0.6 : 0.22), tint.opacity(area ? 0.12 : 0.0)]),
                 startPoint: CGPoint(x: 0, y: 0),
                 endPoint:   CGPoint(x: 0, y: h)
             ))
@@ -96,14 +105,15 @@ struct Sparkline: View {
                        with: .color(tint.opacity(0.85)),
                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
 
-            if let last = data.last {
+            if !area, let last = data.last {
                 let cx = lastX
-                let cy = h - CGFloat(min(max(last, 0), 1)) * h
+                let cy = yPosition(last)
                 var dot = Path()
                 dot.addEllipse(in: CGRect(x: cx - 2.5, y: cy - 2.5, width: 5, height: 5))
                 ctx.fill(dot, with: .color(tint))
             }
         }
+        .clipped()
     }
 }
 
@@ -124,10 +134,10 @@ struct MetricCard: View {
     let progress: Double   // 0..1
     let tint: Color
     var history: [Double]? = nil   // optional sparkline data
+    var chartStyle = CardChartStyle.line
+    var chartAvailable = true
 
     @State private var hovered = false
-
-    private var clamped: Double { min(max(progress, 0), 1) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -153,21 +163,8 @@ struct MetricCard: View {
 
             Spacer(minLength: 4)
 
-            if let h = history, h.count > 1 {
-                Sparkline(data: h, tint: tint)
-                    .frame(height: 24)
-            } else {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(tint.opacity(0.15)).frame(height: 4)
-                        Capsule()
-                            .fill(tint)
-                            .frame(width: geo.size.width * clamped, height: 4)
-                            .animation(.easeInOut(duration: 0.35), value: clamped)
-                    }
-                }
-                .frame(height: 4)
-            }
+            CardChart(style: chartStyle, history: history ?? [], progress: progress, tint: tint, available: chartAvailable)
+                .frame(height: 24)
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
@@ -176,6 +173,7 @@ struct MetricCard: View {
                 .fill(.regularMaterial)
                 .brightness(hovered ? 0.05 : 0)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10)
             .strokeBorder(tint.opacity(hovered ? 0.45 : 0.22), lineWidth: 1))
         .animation(.easeInOut(duration: 0.15), value: hovered)
@@ -240,6 +238,11 @@ struct ContentView: View {
 
     private var m: MacmonOutput? { monitor.macmon }
     private var soc: MacmonSocInfo? { monitor.socInfo }
+
+    private func powerValue(_ value: Double?, precision: Int = 1) -> String {
+        guard monitor.powerAvailable, let value else { return "—" }
+        return String(format: "%.*f W", precision, value)
+    }
 
     // MARK: Body
 
@@ -337,32 +340,14 @@ struct ContentView: View {
                 detail: "Active, core-weighted",
                 progress: cpuPct / 100,
                 tint: usageColor(cpuPct, normal: .mint),
-                history: monitor.cpuHistory
+                history: monitor.cpuHistory,
+                chartStyle: menuBar.cardCharts.style(for: "cpu"),
+                chartAvailable: m != nil
             )
 
-            // E-cores
-            let ePct = m?.ecpuPct ?? 0
-            let eMax = soc?.ecpuMaxMHz ?? 3000
-            MetricCard(
-                label: "\(soc?.ecpuLabel ?? "E")-CORES",
-                value: m.map { String(format: "%.0f MHz", $0.ecpuFreqMHz) } ?? "—",
-                detail: m.map { String(format: "%.1f%% - %d cores", $0.ecpuPct, soc?.ecpuCores ?? 0) },
-                progress: m.map { $0.ecpuFreqMHz / eMax } ?? 0,
-                tint: usageColor(ePct, normal: .cyan),
-                history: monitor.ecpuHistory
-            )
-
-            // P-cores
-            let pPct = m?.pcpuPct ?? 0
-            let pMax = soc?.pcpuMaxMHz ?? 4500
-            MetricCard(
-                label: "\(soc?.pcpuLabel ?? "P")-CORES",
-                value: m.map { String(format: "%.0f MHz", $0.pcpuFreqMHz) } ?? "—",
-                detail: m.map { String(format: "%.1f%% - %d cores", $0.pcpuPct, soc?.pcpuCores ?? 0) },
-                progress: m.map { $0.pcpuFreqMHz / pMax } ?? 0,
-                tint: usageColor(pPct, normal: .blue),
-                history: monitor.pcpuHistory
-            )
+            ForEach(monitor.cpuTiers) { tier in
+                cpuTierCard(tier)
+            }
 
             // CPU temperature
             let cpuTemp = m?.temp.cpuTempAvg ?? 0
@@ -372,19 +357,42 @@ struct ContentView: View {
                 detail: nil,
                 progress: cpuTemp / 100,
                 tint: tempColor(cpuTemp),
-                history: monitor.cpuTempHistory
+                history: monitor.cpuTempHistory,
+                chartStyle: menuBar.cardCharts.style(for: "cpu-temp"),
+                chartAvailable: m?.temp.cpuTempAvg != nil
             )
 
             // CPU power
             MetricCard(
                 label: "CPU POWER",
-                value: m.map { String(format: "%.1f W", $0.cpuPower) } ?? "—",
+                value: powerValue(m?.cpuPower),
                 detail: nil,
                 progress: m.map { $0.cpuPower / 30 } ?? 0,
                 tint: .orange,
-                history: monitor.cpuPowerHistory
+                history: monitor.cpuPowerHistory,
+                chartStyle: menuBar.cardCharts.style(for: "cpu-power"),
+                chartAvailable: monitor.powerAvailable && m != nil
             )
         }
+    }
+
+    private func cpuTierCard(_ tier: MacmonCPUTierInfo) -> some View {
+        let metrics = m?.tiers.first { $0.label == tier.label }
+        let percent = metrics?.percent ?? 0
+        let tint: Color = tier.label == "E" ? .cyan : (tier.label == "S" ? .indigo : .blue)
+        let frequency = soc?.vm == true ? nil : metrics?.freqMhz
+        return MetricCard(
+            label: tier.displayName,
+            value: soc?.vm == true ? metrics.map { String(format: "%.1f%%", $0.percent) } ?? "—" : formatFrequency(frequency),
+            detail: metrics.map { String(format: "%.1f%% - %d cores", $0.percent, tier.cores) },
+            progress: percent / 100,
+            tint: usageColor(percent, normal: tint),
+            history: monitor.cpuTierHistory[tier.label],
+            chartStyle: menuBar.cardCharts.style(for: "cpu-tier-\(tier.label)"),
+            chartAvailable: metrics != nil
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("cpu-tier-\(tier.label)")
     }
 
     // MARK: - GPU + Power row
@@ -393,14 +401,15 @@ struct ContentView: View {
         HStack(spacing: 10) {
             // GPU usage + freq
             let gpuPct = m?.gpuPct ?? 0
-            let gMax = soc?.gpuMaxMHz ?? 1500
             MetricCard(
                 label: "GPU",
-                value: m.map { String(format: "%.1f%%", $0.gpuPct) } ?? "—",
-                detail: m.map { String(format: "%.0f MHz - %d cores", $0.gpuFreqMHz, soc?.gpuCores ?? 0) },
-                progress: m.map { $0.gpuFreqMHz / gMax } ?? 0,
+                value: monitor.gpuAvailable ? m.map { String(format: "%.1f%%", $0.gpuPct) } ?? "—" : "—",
+                detail: monitor.gpuAvailable ? m.map { "\(formatFrequency($0.gpuFreqMHz)) - \(soc?.gpuCores ?? 0) cores" } : "Unavailable",
+                progress: monitor.gpuAvailable ? gpuPct / 100 : 0,
                 tint: usageColor(gpuPct, normal: .purple),
-                history: monitor.gpuHistory
+                history: monitor.gpuHistory,
+                chartStyle: menuBar.cardCharts.style(for: "gpu"),
+                chartAvailable: monitor.gpuAvailable && m != nil
             )
 
             // GPU temperature
@@ -411,37 +420,45 @@ struct ContentView: View {
                 detail: nil,
                 progress: gpuTemp / 100,
                 tint: tempColor(gpuTemp),
-                history: monitor.gpuTempHistory
+                history: monitor.gpuTempHistory,
+                chartStyle: menuBar.cardCharts.style(for: "gpu-temp"),
+                chartAvailable: m?.temp.gpuTempAvg != nil
             )
 
             // GPU power
             MetricCard(
                 label: "GPU POWER",
-                value: m.map { String(format: "%.1f W", $0.gpuPower) } ?? "—",
+                value: powerValue(m?.gpuPower),
                 detail: nil,
                 progress: m.map { $0.gpuPower / 20 } ?? 0,
                 tint: .orange,
-                history: monitor.gpuPowerHistory
+                history: monitor.gpuPowerHistory,
+                chartStyle: menuBar.cardCharts.style(for: "gpu-power"),
+                chartAvailable: monitor.powerAvailable && m != nil
             )
 
             // ANE power
             MetricCard(
                 label: "ANE POWER",
-                value: m.map { String(format: "%.2f W", $0.anePower) } ?? "—",
+                value: powerValue(m?.anePower, precision: 2),
                 detail: "Neural Engine",
                 progress: m.map { $0.anePower / 8 } ?? 0,
                 tint: .yellow,
-                history: monitor.anePowerHistory
+                history: monitor.anePowerHistory,
+                chartStyle: menuBar.cardCharts.style(for: "ane-power"),
+                chartAvailable: monitor.powerAvailable && m != nil
             )
 
             // Total system power
             MetricCard(
                 label: "SYS POWER",
-                value: m.map { String(format: "%.1f W", $0.sysPower) } ?? "—",
-                detail: m.map { String(format: "chip %.1f W", $0.allPower) },
+                value: powerValue(m?.sysPower),
+                detail: monitor.powerAvailable ? m.map { String(format: "chip %.1f W", $0.allPower) } : "Unavailable",
                 progress: m.map { $0.sysPower / 65 } ?? 0,
                 tint: .orange,
-                history: monitor.sysPowerHistory
+                history: monitor.sysPowerHistory,
+                chartStyle: menuBar.cardCharts.style(for: "system-power"),
+                chartAvailable: monitor.powerAvailable && m != nil
             )
         }
     }
@@ -458,7 +475,9 @@ struct ContentView: View {
                 detail: m.map { String(format: "of %.0f GB  -  %.0f%%", $0.ramTotalGB, $0.ramPct) },
                 progress: ramPct / 100,
                 tint: usageColor(ramPct, normal: .green),
-                history: monitor.ramHistory
+                history: monitor.ramHistory,
+                chartStyle: menuBar.cardCharts.style(for: "ram"),
+                chartAvailable: m != nil
             )
 
             // Swap
@@ -468,17 +487,22 @@ struct ContentView: View {
                 value: m.map { $0.swapTotalGB < 0.01 ? "None" : String(format: "%.1f GB", $0.swapUsedGB) } ?? "—",
                 detail: hasSwap ? m.map { String(format: "of %.1f GB", $0.swapTotalGB) } : nil,
                 progress: hasSwap ? m.map { $0.swapTotalGB > 0 ? $0.swapUsedGB / $0.swapTotalGB : 0 } ?? 0 : 0,
-                tint: .teal
+                tint: .teal,
+                history: monitor.swapHistory,
+                chartStyle: menuBar.cardCharts.style(for: "swap"),
+                chartAvailable: m != nil
             )
 
             // Network I/O
             MetricCard(
                 label: "NETWORK",
-                value: "↓ \(formatNet(monitor.networkDownBps))",
-                detail: "↑ \(formatNet(monitor.networkUpBps))",
-                progress: 0,
+                value: m == nil ? "—" : "↓ \(formatNet(monitor.networkDownBps))",
+                detail: m == nil ? "Unavailable" : "↑ \(formatNet(monitor.networkUpBps))",
+                progress: monitor.netDownHistory.last ?? 0,
                 tint: .indigo,
-                history: monitor.netDownHistory
+                history: monitor.netDownHistory,
+                chartStyle: menuBar.cardCharts.style(for: "network"),
+                chartAvailable: m != nil
             )
 
             // Battery
@@ -488,7 +512,10 @@ struct ContentView: View {
                 value: monitor.hasBattery ? String(format: "%.0f%%", monitor.batteryLevel) : "—",
                 detail: monitor.hasBattery ? (monitor.isCharging ? "Charging ⚡" : (monitor.isOnBattery ? "On battery 🔋" : "Plugged in 🔌")) : "No battery",
                 progress: monitor.batteryLevel / 100,
-                tint: batColor
+                tint: batColor,
+                history: monitor.batteryHistory,
+                chartStyle: menuBar.cardCharts.style(for: "battery"),
+                chartAvailable: monitor.hasBattery
             )
 
             // Disk
@@ -497,8 +524,11 @@ struct ContentView: View {
                 label: "DISK FREE",
                 value: String(format: "%.0f GB", monitor.diskFreeGB),
                 detail: String(format: "of %.0f GB  -  %.0f%% used", monitor.diskTotalGB, diskPct * 100),
-                progress: diskPct,
-                tint: usageColor(diskPct * 100, normal: .gray)
+                progress: monitor.diskTotalGB > 0 ? monitor.diskFreeGB / monitor.diskTotalGB : 0,
+                tint: usageColor(diskPct * 100, normal: .gray),
+                history: monitor.diskFreeHistory,
+                chartStyle: menuBar.cardCharts.style(for: "disk"),
+                chartAvailable: monitor.diskTotalGB > 0
             )
         }
     }
@@ -584,9 +614,10 @@ struct InfoWindowView: View {
         r.append(Row(name: "Model",         value: modelID))
         if let s = soc {
             r.append(Row(name: "Chip",       value: s.chipName))
-            r.append(Row(name: "\(s.ecpuLabel)-Cores", value: "\(s.ecpuCores) × \(s.ecpuLabel)  max \(Int(s.ecpuMaxMHz)) MHz"))
-            r.append(Row(name: "\(s.pcpuLabel)-Cores", value: "\(s.pcpuCores) × \(s.pcpuLabel)  max \(Int(s.pcpuMaxMHz)) MHz"))
-            r.append(Row(name: "GPU Cores",  value: "\(s.gpuCores) cores  max \(Int(s.gpuMaxMHz)) MHz"))
+            for tier in s.cpuTiers {
+                r.append(Row(name: tier.displayName, value: "\(tier.cores) cores  max \(formatFrequency(s.vm ? nil : tier.maxMHz))"))
+            }
+            r.append(Row(name: "GPU Cores", value: s.vm ? "Unavailable" : "\(s.gpuCores) cores  max \(formatFrequency(s.gpuMaxMHz))"))
             r.append(Row(name: "Memory",     value: "\(s.memoryGb) GB unified"))
         }
         r.append(Row(name: "Storage Type",  value: storageType))

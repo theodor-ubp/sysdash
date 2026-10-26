@@ -11,6 +11,11 @@ enum StatSeparator: String, Codable, CaseIterable {
     case pipe   = " | "
     case slash  = " / "
 
+    func text(spacing: Int) -> String {
+        let spaces = String(repeating: " ", count: min(max(spacing, 0), 4))
+        return self == .none ? spaces : spaces + rawValue.trimmingCharacters(in: .whitespaces) + spaces
+    }
+
     var label: String {
         switch self {
         case .none:   return "None"
@@ -31,7 +36,12 @@ struct MenuBarSettings: Codable, Equatable {
     var showBattery  = false
     var showNetDown  = false
     var showNetUp    = false
-    var separator    = StatSeparator.hyphen
+    var separator    = StatSeparator.none
+    var appearance   = TrayAppearance()
+
+    private enum CodingKeys: String, CodingKey {
+        case showCPU, showGPU, showCPUTemp, showGPUTemp, showRAM, showPower, showBattery, showNetDown, showNetUp, separator, appearance
+    }
 
     static func load() -> MenuBarSettings {
         guard let data = UserDefaults.standard.data(forKey: "sysdash.menuBarSettings"),
@@ -44,6 +54,24 @@ struct MenuBarSettings: Codable, Equatable {
         if let data = try? JSONEncoder().encode(self) {
             UserDefaults.standard.set(data, forKey: "sysdash.menuBarSettings")
         }
+    }
+}
+
+extension MenuBarSettings {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        showCPU = try c.decodeIfPresent(Bool.self, forKey: .showCPU) ?? showCPU
+        showGPU = try c.decodeIfPresent(Bool.self, forKey: .showGPU) ?? showGPU
+        showCPUTemp = try c.decodeIfPresent(Bool.self, forKey: .showCPUTemp) ?? showCPUTemp
+        showGPUTemp = try c.decodeIfPresent(Bool.self, forKey: .showGPUTemp) ?? showGPUTemp
+        showRAM = try c.decodeIfPresent(Bool.self, forKey: .showRAM) ?? showRAM
+        showPower = try c.decodeIfPresent(Bool.self, forKey: .showPower) ?? showPower
+        showBattery = try c.decodeIfPresent(Bool.self, forKey: .showBattery) ?? showBattery
+        showNetDown = try c.decodeIfPresent(Bool.self, forKey: .showNetDown) ?? showNetDown
+        showNetUp = try c.decodeIfPresent(Bool.self, forKey: .showNetUp) ?? showNetUp
+        separator = try c.decodeIfPresent(StatSeparator.self, forKey: .separator) ?? separator
+        appearance = (try? c.decode(TrayAppearance.self, forKey: .appearance)) ?? TrayAppearance()
     }
 }
 
@@ -71,6 +99,7 @@ private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
 
 final class MenuBarManager: ObservableObject {
     @Published var settings = MenuBarSettings.load()
+    @Published var cardCharts = CardChartSettings.load()
 
     private var statusItem: NSStatusItem?
     private var cancellables = Set<AnyCancellable>()
@@ -88,6 +117,7 @@ final class MenuBarManager: ObservableObject {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem?.button {
+            btn.font = MenuBarTypography.font(appearance: settings.appearance)
             btn.action = #selector(statusItemClicked)
             btn.target  = self
             btn.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -117,34 +147,22 @@ final class MenuBarManager: ObservableObject {
 
     // MARK: - Label
 
-    func updateLabel() {
-        guard let monitor else { return }
-        var parts: [String] = []
-
-        if let m = monitor.macmon {
-            if settings.showCPU     { parts.append(String(format: "CPU %.0f%%",   m.cpuPct)) }
-            if settings.showGPU     { parts.append(String(format: "GPU %.0f%%",   m.gpuPct)) }
-            if settings.showCPUTemp { parts.append(formatTemperature(m.temp.cpuTempAvg)) }
-            if settings.showGPUTemp { parts.append("G" + formatTemperature(m.temp.gpuTempAvg)) }
-            if settings.showRAM     { parts.append(String(format: "%.1fGB",       m.ramUsedGB)) }
-            if settings.showPower   { parts.append(String(format: "%.0fW",        m.sysPower)) }
-        }
-        if settings.showBattery {
-            let icon = monitor.isCharging ? "⚡" : (monitor.isOnBattery ? "🔋" : "")
-            parts.append(monitor.hasBattery ? String(format: "%@%.0f%%", icon, monitor.batteryLevel) : "Battery —")
-        }
-        if settings.showNetDown { parts.append(formatNetShort(monitor.networkDownBps, prefix: "↓")) }
-        if settings.showNetUp   { parts.append(formatNetShort(monitor.networkUpBps,   prefix: "↑")) }
-
-        let label = parts.isEmpty ? "UP Sysdash" : parts.joined(separator: settings.separator.rawValue)
-        statusItem?.button?.title = label
-        statusItem?.button?.toolTip = "UP Sysdash - right-click for stats"
+    var currentReadings: MenuBarReadings {
+        guard let monitor else { return MenuBarReadings() }
+        let m = monitor.macmon
+        return MenuBarReadings(cpuPercent: m?.cpuPct,
+            gpuPercent: monitor.gpuAvailable ? m?.gpuPct : nil,
+            cpuTemperature: m?.temp.cpuTempAvg, gpuTemperature: m?.temp.gpuTempAvg,
+            ramGB: m?.ramUsedGB, systemWatts: monitor.powerAvailable ? m?.sysPower : nil,
+            batteryPercent: monitor.hasBattery ? monitor.batteryLevel : nil,
+            isCharging: monitor.isCharging, isOnBattery: monitor.isOnBattery,
+            downloadBps: m == nil ? nil : monitor.networkDownBps, uploadBps: m == nil ? nil : monitor.networkUpBps)
     }
 
-    private func formatNetShort(_ bps: Double, prefix: String) -> String {
-        if bps >= 1_048_576 { return String(format: "%@%.1fM", prefix, bps / 1_048_576) }
-        if bps >= 1_024     { return String(format: "%@%.0fK", prefix, bps / 1_024) }
-        return String(format: "%@%.0fB", prefix, bps)
+    func updateLabel() {
+        let readings = currentReadings
+        statusItem?.button?.attributedTitle = MenuBarTypography.text(readings.label(settings: settings), appearance: settings.appearance)
+        statusItem?.button?.toolTip = "UP Sysdash - right-click for stats"
     }
 
     // MARK: - Click
@@ -245,6 +263,7 @@ final class MenuBarManager: ObservableObject {
             win.styleMask = [.titled, .closable]
             win.isRestorable = false
             win.setFrameAutosaveName("SysDashSettings")
+            win.setContentSize(NSSize(width: 720, height: 600))
             settingsDelegate.manager = self
             win.delegate = settingsDelegate
             settingsWindow = win
@@ -263,7 +282,7 @@ final class MenuBarManager: ObservableObject {
             cpu.isEnabled = false
             menu.addItem(cpu)
 
-            let gpu = NSMenuItem(title: String(format: "GPU  %.1f%%", m.gpuPct), action: nil, keyEquivalent: "")
+            let gpu = NSMenuItem(title: monitor?.gpuAvailable == true ? String(format: "GPU  %.1f%%", m.gpuPct) : "GPU  —", action: nil, keyEquivalent: "")
             gpu.isEnabled = false
             menu.addItem(gpu)
 
@@ -278,7 +297,7 @@ final class MenuBarManager: ObservableObject {
             ram.isEnabled = false
             menu.addItem(ram)
 
-            let pwr = NSMenuItem(title: String(format: "Power  %.0f W", m.sysPower), action: nil, keyEquivalent: "")
+            let pwr = NSMenuItem(title: monitor?.powerAvailable == true ? String(format: "Power  %.0f W", m.sysPower) : "Power  —", action: nil, keyEquivalent: "")
             pwr.isEnabled = false
             menu.addItem(pwr)
         }
@@ -286,7 +305,7 @@ final class MenuBarManager: ObservableObject {
         if let mon = monitor {
             let upBps   = mon.networkUpBps
             let downBps = mon.networkDownBps
-            if upBps > 0 || downBps > 0 {
+            if mon.macmon != nil, upBps > 0 || downBps > 0 {
                 let net = NSMenuItem(title: "Net  ↓ \(formatNet(downBps))  ↑ \(formatNet(upBps))",
                                      action: nil, keyEquivalent: "")
                 net.isEnabled = false
@@ -375,30 +394,21 @@ enum LaunchAgentHelper {
         FileManager.default.fileExists(atPath: plistPath)
     }
 
+    static func plistData(appPath: String, bundleID: String) throws -> Data {
+        try PropertyListSerialization.data(fromPropertyList: [
+            "Label": bundleID,
+            "ProgramArguments": ["/usr/bin/open", "-a", appPath],
+            "RunAtLoad": true
+        ], format: .xml, options: 0)
+    }
+
     static func install() throws {
         guard let appPath = Bundle.main.bundlePath as String? else { return }
         let bundleID = Bundle.main.bundleIdentifier ?? "com.sysdash.app"
-        let plist = """
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>\(bundleID)</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/open</string>
-    <string>-a</string>
-    <string>\(appPath)</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-</dict>
-</plist>
-"""
+        let plist = try plistData(appPath: appPath, bundleID: bundleID)
         let dir = "\(NSHomeDirectory())/Library/LaunchAgents"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        try plist.write(toFile: plistPath, atomically: true, encoding: .utf8)
+        try plist.write(to: URL(fileURLWithPath: plistPath), options: .atomic)
         _ = try? Process.run(URL(fileURLWithPath: "/bin/launchctl"),
                              arguments: ["load", plistPath])
     }

@@ -1,0 +1,291 @@
+{
+  "all_power": 0.6981465220451355,
+  "ane_power": 0.0,
+  "cpu_active_ratio": 0.3789175801666666,
+  "cpu_power": 0.6369885206222534,
+  "cpu_scaled_ratio": 0.059534162282943726,
+  "cpu_tiers": [
+    {
+      "label": "E",
+      "freq_mhz": 2940,
+      "active_ratio": 0.711868968,
+      "scaled_ratio": 0.355934484,
+      "cores": [
+        {
+          "die_id": 0,
+          "core_id": 0,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        },
+        {
+          "die_id": 0,
+          "core_id": 1,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        },
+        {
+          "die_id": 0,
+          "core_id": 2,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        },
+        {
+          "die_id": 0,
+          "core_id": 3,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        },
+        {
+          "die_id": 0,
+          "core_id": 4,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        },
+        {
+          "die_id": 0,
+          "core_id": 5,
+          "freq_mhz": 2940,
+          "active_ratio": 0.711868968,
+          "scaled_ratio": 0.355934484
+        }
+      ]
+    },
+    {
+      "label": "P",
+      "freq_mhz": 2394,
+      "active_ratio": 0.000697166,
+      "scaled_ratio": 0.000348583,
+      "cores": [
+        {
+          "die_id": 0,
+          "core_id": 0,
+          "freq_mhz": 2394,
+          "active_ratio": 0.000697166,
+          "scaled_ratio": 0.000348583
+        },
+        {
+          "die_id": 0,
+          "core_id": 1,
+          "freq_mhz": 2394,
+          "active_ratio": 0.000697166,
+          "scaled_ratio": 0.000348583
+        },
+        {
+          "die_id": 0,
+          "core_id": 2,
+          "freq_mhz": 2394,
+          "active_ratio": 0.000697166,
+          "scaled_ratio": 0.000348583
+        },
+        {
+          "die_id": 0,
+          "core_id": 3,
+          "freq_mhz": 2394,
+          "active_ratio": 0.000697166,
+          "scaled_ratio": 0.000348583
+        }
+      ]
+    },
+    {
+      "label": "S",
+      "freq_mhz": 4776,
+      "active_ratio": 0.136504245,
+      "scaled_ratio": 0.0682521225,
+      "cores": [
+        {
+          "die_id": 0,
+          "core_id": 0,
+          "freq_mhz": 4776,
+          "active_ratio": 0.136504245,
+          "scaled_ratio": 0.0682521225
+        },
+        {
+          "die_id": 0,
+          "core_id": 1,
+          "freq_mhz": 4776,
+          "active_ratio": 0.136504245,
+          "scaled_ratio": 0.0682521225
+        }
+      ]
+    }
+  ],
+  "cpu_usage_pct": 0.059534162282943726,
+  "ecpu_active_ratio": 0.711868968,
+  "ecpu_cores": [
+    {
+      "active_ratio": 0.26477473974227905,
+      "core_id": 0,
+      "die_id": 0,
+      "freq_mhz": 1628,
+      "scaled_ratio": 0.1490740180015564
+    },
+    {
+      "active_ratio": 0.20887693762779236,
+      "core_id": 1,
+      "die_id": 0,
+      "freq_mhz": 1646,
+      "scaled_ratio": 0.11893816292285919
+    },
+    {
+      "active_ratio": 0.14753639698028564,
+      "core_id": 2,
+      "die_id": 0,
+      "freq_mhz": 1759,
+      "scaled_ratio": 0.08973705023527145
+    },
+    {
+      "active_ratio": 0.08159907162189484,
+      "core_id": 3,
+      "die_id": 0,
+      "freq_mhz": 1693,
+      "scaled_ratio": 0.047774072736501694
+    },
+    {
+      "active_ratio": 0.05145642161369324,
+      "core_id": 4,
+      "die_id": 0,
+      "freq_mhz": 1671,
+      "scaled_ratio": 0.02973807416856289
+    },
+    {
+      "active_ratio": 0.018440447747707367,
+      "core_id": 5,
+      "die_id": 0,
+      "freq_mhz": 1887,
+      "scaled_ratio": 0.01203720923513174
+    }
+  ],
+  "ecpu_freq_mhz": 2940,
+  "ecpu_scaled_ratio": 0.07454976439476013,
+  "ecpu_usage": [
+    1714,
+    0.07454976439476013
+  ],
+  "fans": [],
+  "gpu_active_ratio": 0.07679799944162369,
+  "gpu_freq_mhz": 338,
+  "gpu_power": 0.06115800887346268,
+  "gpu_ram_power": 0.0,
+  "gpu_scaled_ratio": 0.01765831559896469,
+  "gpu_usage": [
+    338,
+    0.01765831559896469
+  ],
+  "memory": {
+    "ram_total": 17179869184,
+    "ram_usage": 12088180736,
+    "swap_total": 0,
+    "swap_usage": 0
+  },
+  "pcpu_active_ratio": 0.136504245,
+  "pcpu_cores": [
+    {
+      "active_ratio": 0.05772719159722328,
+      "core_id": 0,
+      "die_id": 0,
+      "freq_mhz": 2882,
+      "scaled_ratio": 0.03728106990456581
+    },
+    {
+      "active_ratio": 0.048824045807123184,
+      "core_id": 1,
+      "die_id": 0,
+      "freq_mhz": 2790,
+      "scaled_ratio": 0.030525872483849525
+    },
+    {
+      "active_ratio": 0.07681161165237427,
+      "core_id": 2,
+      "die_id": 0,
+      "freq_mhz": 3224,
+      "scaled_ratio": 0.055484600365161896
+    },
+    {
+      "active_ratio": 0.03737851604819298,
+      "core_id": 3,
+      "die_id": 0,
+      "freq_mhz": 2955,
+      "scaled_ratio": 0.02475147321820259
+    }
+  ],
+  "pcpu_freq_mhz": 4776,
+  "pcpu_scaled_ratio": 0.03701075538992882,
+  "pcpu_usage": [
+    2962,
+    0.03701075538992882
+  ],
+  "ram_power": 0.0,
+  "soc": {
+    "chip_name": "Apple M6",
+    "cpu_tiers": [
+      {
+        "label": "E",
+        "cores": 6,
+        "freqs": [
+          2940,
+          4800
+        ]
+      },
+      {
+        "label": "P",
+        "cores": 4,
+        "freqs": [
+          2394,
+          4800
+        ]
+      },
+      {
+        "label": "S",
+        "cores": 2,
+        "freqs": [
+          4776,
+          4800
+        ]
+      }
+    ],
+    "ecpu_cores": 6,
+    "ecpu_freqs": [
+      2940,
+      4800
+    ],
+    "ecpu_label": "E",
+    "gpu_cores": 12,
+    "gpu_freqs": [
+      0,
+      338,
+      618,
+      796,
+      836,
+      928,
+      952,
+      1056,
+      1053,
+      1170,
+      1152,
+      1278,
+      1204,
+      1338,
+      1326,
+      1470
+    ],
+    "mac_model": "Synthetic-m6",
+    "memory_gb": 16,
+    "pcpu_cores": 2,
+    "pcpu_freqs": [
+      4776,
+      4800
+    ],
+    "pcpu_label": "S",
+    "vm": false
+  },
+  "sys_power": 6.108147621154785,
+  "temp": {
+    "cpu_temp_avg": 38.11814880371094,
+    "gpu_temp_avg": 35.60118103027344
+  }
+}

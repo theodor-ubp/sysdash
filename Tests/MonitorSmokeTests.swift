@@ -85,6 +85,105 @@ enum MonitorSmokeTests {
         wait(5) { (try? children(fixture.path).isEmpty) == true }
         print("PASS: fragmented JSON stream, visible decode errors, recovery, unavailable temperature history")
 
+        // Drive the production stream reader with synthetic M6 snapshots. This
+        // exercises per-tier history and metadata, not only JSON decoding.
+        let fixtures = URL(fileURLWithPath: CommandLine.arguments[2])
+        let m6Data = try Data(contentsOf: fixtures.appendingPathComponent("m6.json"))
+        let m6JSON = String(decoding: m6Data, as: UTF8.self)
+        let m6Script = """
+        #!/usr/bin/python3
+        import json, os, time
+        sample = json.loads(\(String(decoding: try JSONEncoder().encode(m6JSON), as: UTF8.self)))
+        invalid = json.loads(json.dumps(sample))
+        invalid['cpu_tiers'][1]['label'] = 'E'
+        os.write(1, (json.dumps(invalid) + '\\n').encode())
+        time.sleep(0.3)
+        for i in range(80):
+            sample['cpu_tiers'][2]['active_ratio'] = i / 100
+            sample['memory']['swap_total'] = 8 * 1073741824
+            sample['memory']['swap_usage'] = (i % 8) * 1073741824
+            os.write(1, (json.dumps(sample) + '\\n').encode())
+            time.sleep(0.005)
+        time.sleep(60)
+        """
+        try m6Script.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.path)
+        let m6Monitor = SystemMonitor(macmonPath: fixture.path, defaults: defaults)
+        wait(5) { m6Monitor.macmonError?.contains("Cannot read") == true }
+        check(m6Monitor.macmon == nil && m6Monitor.cpuHistory.isEmpty, "Duplicate tier labels must be rejected before publishing")
+        wait(10) { m6Monitor.cpuTierHistory["S"]?.last == 0.79 }
+        check(m6Monitor.socInfo?.coreLabel == "6E+4P+2S+12GPU", "M6 stream topology")
+        check(m6Monitor.cpuTierHistory.keys.sorted() == ["E", "P", "S"], "Each tier needs a separate history")
+        check(m6Monitor.cpuTierHistory.values.allSatisfy { $0.count == 60 } && m6Monitor.cpuHistory.count == 60, "History buffers must stay bounded")
+        check(abs(m6Monitor.cpuTierHistory["S"]!.first! - 0.2) < 0.00001, "S history ring order")
+        check(abs(m6Monitor.cpuTierHistory["P"]!.last! - 0.000697166) < 0.00001, "P samples must not contain S usage")
+        check(m6Monitor.swapHistory.count == 60 && m6Monitor.swapHistory.first == 0.5 && m6Monitor.swapHistory.last == 0.875, "Swap history must preserve sampled usage and ring order")
+        check(m6Monitor.diskFreeHistory.count == 60, "Disk Free needs a bounded history")
+        check(abs(m6Monitor.diskFreeHistory.last! - m6Monitor.diskFreeGB / m6Monitor.diskTotalGB) < 0.000001, "Disk Free graph must track free capacity")
+        check(m6Monitor.hasBattery ? m6Monitor.batteryHistory.count == 60 : m6Monitor.batteryHistory.isEmpty, "Battery history must match availability")
+        m6Monitor.shutdown()
+        wait(5) { (try? children(fixture.path).isEmpty) == true }
+        check(m6Monitor.cpuTiers.map(\.label) == ["E", "P", "S"], "M6 topology must survive offline transitions")
+        print("PASS: M6 E/P/S stream, independent histories, 60-sample bounds and retained metadata")
+
+        let vmJSON = try String(contentsOf: fixtures.appendingPathComponent("vm.json"), encoding: .utf8)
+        let vmScript = """
+        #!/usr/bin/python3
+        import os, time
+        os.write(1, (\(String(decoding: try JSONEncoder().encode(vmJSON.replacingOccurrences(of: "\n", with: "")), as: UTF8.self)) + '\\n').encode())
+        time.sleep(60)
+        """
+        try vmScript.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.path)
+        let vmMonitor = SystemMonitor(macmonPath: fixture.path, defaults: defaults)
+        wait(5) { vmMonitor.macmonRunning }
+        check(vmMonitor.cpuTiers.count == 1 && !vmMonitor.powerAvailable && !vmMonitor.gpuAvailable, "VM must expose a single tier with unavailable GPU and power")
+        check(vmMonitor.cpuPowerHistory.isEmpty && vmMonitor.sysPowerHistory.isEmpty && vmMonitor.gpuHistory.isEmpty, "VM must not fabricate counter histories")
+        vmMonitor.shutdown()
+        wait(5) { (try? children(fixture.path).isEmpty) == true }
+        print("PASS: VM unavailable power/GPU histories and single-tier stream")
+
+        let stalledScript = """
+        #!/usr/bin/python3
+        import os, time
+        os.write(1, (\(String(decoding: try JSONEncoder().encode(sample), as: UTF8.self)) + '\\n').encode())
+        time.sleep(60)
+        """
+        try stalledScript.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.path)
+        let stalledMonitor = SystemMonitor(macmonPath: fixture.path, defaults: defaults)
+        wait(5) { stalledMonitor.macmonRunning }
+        let stalledPID = try children(fixture.path).first!
+        wait(8) { stalledMonitor.macmonError?.contains("stopped sending") == true }
+        check(!stalledMonitor.macmonRunning && stalledMonitor.macmon == nil, "Stalled meters must not remain Live")
+        wait(6) { stalledMonitor.macmonRunning }
+        let replacementPID = try children(fixture.path).first
+        check(replacementPID != stalledPID, "Stalled helper must be replaced")
+        stalledMonitor.shutdown()
+        wait(5) { (try? children(fixture.path).isEmpty) == true }
+        stalledMonitor.intervalMs = 500
+        let afterShutdown = try children(fixture.path)
+        check(afterShutdown.isEmpty, "Changing preferences after shutdown must not restart the helper")
+        print("PASS: stalled stream becomes Offline, restarts and stays shut down after shutdown")
+
+        let oversizedScript = """
+        #!/usr/bin/python3
+        import os, time
+        os.write(1, b'x' * 1100000)
+        time.sleep(60)
+        """
+        try oversizedScript.write(to: fixture, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fixture.path)
+        let oversizedMonitor = SystemMonitor(macmonPath: fixture.path, defaults: defaults)
+        wait(8) { oversizedMonitor.macmonError?.contains("oversized") == true }
+        oversizedMonitor.shutdown()
+        wait(5) { (try? children(fixture.path).isEmpty) == true }
+        RunLoop.main.run(until: Date().addingTimeInterval(2.5))
+        let afterOversized = try children(fixture.path)
+        check(afterOversized.isEmpty, "Framing recovery must not restart after shutdown")
+        print("PASS: oversized unterminated frames are bounded and pending recovery cancels on shutdown")
+
+        defaults.set(1000, forKey: "sysdash.intervalMs")
         let monitor = SystemMonitor(macmonPath: binary, defaults: defaults)
         defer { monitor.shutdown() }
         wait(10) { monitor.macmonRunning && monitor.cpuHistory.count >= 3 }
@@ -93,6 +192,9 @@ enum MonitorSmokeTests {
         check(live.memory.ramUsage <= live.memory.ramTotal, "RAM usage exceeds installed memory")
         check(live.cpuPct >= 0 && live.cpuPct <= 100 && live.gpuPct >= 0 && live.gpuPct <= 100, "Invalid utilization")
         check(live.cpuPower > 0 && live.sysPower >= live.allPower, "macOS 27 power counters unavailable")
+        check(monitor.swapHistory.count >= 3 && monitor.diskFreeHistory.count >= 3, "Capacity cards must collect histories with live metrics")
+        check(monitor.hasBattery ? monitor.batteryHistory.count >= 3 : monitor.batteryHistory.isEmpty, "Missing battery must not fabricate history")
+        if live.memory.swapTotal == 0 { check(monitor.swapHistory.last == 0, "No swap must have zero usage history") }
         check(abs(live.allPower - live.cpuPower - live.gpuPower - live.anePower) < 0.01, "Chip power must equal CPU + GPU + ANE")
         check(monitor.diskFreeGB > 0 && monitor.diskTotalGB > monitor.diskFreeGB, "Invalid disk reading")
         check(monitor.batteryLevel >= 0 && monitor.batteryLevel <= 100, "Invalid battery reading")

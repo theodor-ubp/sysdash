@@ -39,9 +39,11 @@ enum UpdateCheckerTests {
             let legacy = try decoder.decode(LegacyRelease.self, from: data)
             let latest = legacy.tagName.drop(while: { $0 == "v" }).description
             precondition(latest.compare("1.0", options: .numeric) == .orderedDescending)
-            precondition(published.tagName == "v1.1")
-            precondition(published.downloadURL?.lastPathComponent == "up-sysdash-v1.1.dmg")
-            print("PASS: published GitHub latest response is compatible with v1.0 and supplies the direct v1.1 DMG")
+            precondition(latest.compare("1.1", options: .numeric) == .orderedDescending)
+            precondition(published.tagName == "v1.2")
+            precondition(published.downloadURL?.lastPathComponent == "up-sysdash-v1.2.dmg")
+            precondition(published.version.compare("1.2", options: .numeric) == .orderedSame)
+            print("PASS: published GitHub latest response is detected by v1.0/v1.1 and supplies the direct v1.2 DMG; v1.2 is current")
         }
     }
 }
