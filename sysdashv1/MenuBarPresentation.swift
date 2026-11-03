@@ -3,6 +3,37 @@ import CoreText
 
 // Shared by the real tray button and the settings preview.
 enum MenuBarTypography {
+    static let itemPadding: CGFloat = 6
+
+    static func fitScale(_ value: String, appearance: TrayAppearance) -> CGFloat {
+        let style = appearance.normalized
+        let naturalWidth = text(value, appearance: style).size().width
+        return naturalWidth > 0 ? min(1, (style.fixedWidth - itemPadding * 2) / naturalWidth) : 1
+    }
+
+    // Render the complete run, including fallback glyphs and spacing, into a
+    // fixed canvas. Scaling only X keeps the selected font's height unchanged.
+    static func fixedWidthImage(_ value: String, appearance: TrayAppearance) -> NSImage {
+        let style = appearance.normalized
+        let attributed = NSMutableAttributedString(attributedString: text(value, appearance: style))
+        attributed.addAttribute(.foregroundColor, value: NSColor.black, range: NSRange(location: 0, length: attributed.length))
+        let size = NSSize(width: style.fixedWidth - itemPadding * 2, height: max(18, ceil(attributed.size().height) + 1))
+        let scale = fitScale(value, appearance: style)
+        let image = NSImage(size: size, flipped: false) { bounds in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.saveGState()
+            defer { context.restoreGState() }
+            context.clip(to: bounds)
+            context.translateBy(x: 0, y: (bounds.height - attributed.size().height) / 2)
+            context.scaleBy(x: scale, y: 1)
+            attributed.draw(at: .zero)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = value
+        return image
+    }
+
     static func font(appearance: TrayAppearance) -> NSFont {
         let style = appearance.normalized
         let base = style.monospaced

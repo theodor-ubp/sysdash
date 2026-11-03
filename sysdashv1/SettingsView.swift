@@ -1,18 +1,43 @@
 import SwiftUI
 import AppKit
 
+private final class MenuBarPreviewContent: NSView {
+    let label = NSTextField(labelWithString: "")
+    let imageView = NSImageView()
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.lineBreakMode = .byClipping
+        label.usesSingleLineMode = true
+        imageView.imageScaling = .scaleNone
+        imageView.imageAlignment = .alignLeft
+        imageView.contentTintColor = .labelColor
+        addSubview(label)
+        addSubview(imageView)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 private struct MenuBarPreviewLabel: NSViewRepresentable {
     let text: String
     let appearance: TrayAppearance
-    func makeNSView(context: Context) -> NSTextField {
-        let label = NSTextField(labelWithString: "")
-        label.lineBreakMode = .byClipping
-        label.usesSingleLineMode = true
-        return label
+    func makeNSView(context: Context) -> MenuBarPreviewContent {
+        MenuBarPreviewContent(frame: .zero)
     }
-    func updateNSView(_ label: NSTextField, context: Context) {
-        label.attributedStringValue = MenuBarTypography.text(text, appearance: appearance)
-        label.toolTip = text
+    func updateNSView(_ view: MenuBarPreviewContent, context: Context) {
+        let style = appearance.normalized
+        view.label.isHidden = style.fixedWidthEnabled
+        view.imageView.isHidden = !style.fixedWidthEnabled
+        if style.fixedWidthEnabled {
+            let image = MenuBarTypography.fixedWidthImage(text, appearance: style)
+            view.imageView.image = image
+            view.imageView.frame = NSRect(x: MenuBarTypography.itemPadding, y: (30 - image.size.height) / 2, width: image.size.width, height: image.size.height)
+            view.imageView.setAccessibilityLabel(text)
+        } else {
+            view.label.attributedStringValue = MenuBarTypography.text(text, appearance: style)
+            view.label.sizeToFit()
+            view.label.frame.origin = NSPoint(x: 0, y: (30 - view.label.frame.height) / 2)
+        }
+        view.toolTip = text
     }
 }
 
@@ -113,6 +138,13 @@ struct SettingsView: View {
 
     private var appearancePage: some View {
         VStack(spacing: 12) {
+            card("Menu bar width") {
+                Toggle("Fixed width for all stats", isOn: $menuBar.settings.appearance.fixedWidthEnabled)
+                adjustment("Item width", value: $menuBar.settings.appearance.fixedWidth, range: 80...600, step: 5, display: String(format: "%.0f pt", menuBar.settings.appearance.fixedWidth))
+                    .disabled(!menuBar.settings.appearance.fixedWidthEnabled)
+                Text("Keeps neighboring menu bar icons still. Text compresses horizontally when needed to fit the chosen width.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             card("Font") {
                 Toggle("Monospaced font", isOn: $menuBar.settings.appearance.monospaced)
                 Picker("Weight", selection: $menuBar.settings.appearance.weight) {
@@ -238,7 +270,7 @@ struct SettingsView: View {
             }
             ScrollView(.horizontal, showsIndicators: true) {
                 MenuBarPreviewLabel(text: previewLabel, appearance: menuBar.settings.appearance)
-                    .frame(width: MenuBarTypography.text(previewLabel, appearance: menuBar.settings.appearance).size().width + 8, height: 30)
+                    .frame(width: menuBar.settings.appearance.fixedWidthEnabled ? menuBar.settings.appearance.normalized.fixedWidth : MenuBarTypography.text(previewLabel, appearance: menuBar.settings.appearance).size().width + 8, height: 30)
             }.frame(height: 32)
         }
         .padding(14)

@@ -115,7 +115,8 @@ final class MenuBarManager: ObservableObject {
     func setup(monitor: SystemMonitor) {
         self.monitor = monitor
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let appearance = settings.appearance.normalized
+        statusItem = NSStatusBar.system.statusItem(withLength: appearance.fixedWidthEnabled ? appearance.fixedWidth : NSStatusItem.variableLength)
         if let btn = statusItem?.button {
             btn.font = MenuBarTypography.font(appearance: settings.appearance)
             btn.action = #selector(statusItemClicked)
@@ -161,8 +162,23 @@ final class MenuBarManager: ObservableObject {
 
     func updateLabel() {
         let readings = currentReadings
-        statusItem?.button?.attributedTitle = MenuBarTypography.text(readings.label(settings: settings), appearance: settings.appearance)
-        statusItem?.button?.toolTip = "UP Sysdash - right-click for stats"
+        let label = readings.label(settings: settings)
+        let appearance = settings.appearance.normalized
+        guard let item = statusItem, let button = item.button else { return }
+        if appearance.fixedWidthEnabled {
+            if item.length != appearance.fixedWidth { item.length = appearance.fixedWidth }
+            button.attributedTitle = NSAttributedString(string: "")
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleNone
+            button.image = MenuBarTypography.fixedWidthImage(label, appearance: appearance)
+        } else {
+            if item.length != NSStatusItem.variableLength { item.length = NSStatusItem.variableLength }
+            button.image = nil
+            button.imagePosition = .noImage
+            button.attributedTitle = MenuBarTypography.text(label, appearance: appearance)
+        }
+        button.setAccessibilityLabel(label)
+        button.toolTip = "\(label)\nUP Sysdash - right-click for stats"
     }
 
     // MARK: - Click

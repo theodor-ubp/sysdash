@@ -3,7 +3,7 @@
 # Usage: ./build-dmg.sh [version] [validated-app-path] [output-dmg-path]
 set -euo pipefail
 
-VERSION="${1:-1.2}"
+VERSION="${1:-1.3}"
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJ_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 BUILD_DIR="$PROJ_DIR/build"

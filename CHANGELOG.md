@@ -1,3 +1,31 @@
+# UP Sysdash 1.3
+
+Version **1.3**, build **4** — 3 November 2026.
+
+## Fixed-width menu bar stats
+
+- Added **Fixed width for all stats**, enabled by default for new installations and upgrades from 1.2.
+- The entire Sysdash menu-bar item now reserves a constant width instead of resizing with every reading. RAM changes such as `9.9GB` → `10.0GB` no longer move its boundaries or push neighboring menu-bar icons and their anchored windows sideways.
+- Default width is **240 points**, configurable from **80–600 points** in **Settings → Text & spacing → Menu bar width**.
+- The complete stats string compresses horizontally when it exceeds the selected width, including labels, numbers, units and spacing. Shorter strings retain their normal width inside the reserved area.
+- The Settings preview uses the same fitted rendering as the status item. Full readings remain available to accessibility and in the tooltip.
+- Turn fixed width off to restore 1.2's automatic sizing. The enabled state and chosen width are saved independently of existing font, spacing and metric selections.
+- Existing dashboard cards, chart choices, metric formatting, monitoring and **macmon 0.10.0** are unchanged.
+
+## Verification
+
+- Reproduced the original problem on an actual status item: `9.9` → `10.0` → `9.9` GB changed its frame from **58 → 64 → 58 points**. The fixed-width item remains **240 → 240 → 240 points**.
+- Regression checks cover 72 status updates with proportional/monospaced fonts, three configured widths, unavailable readings, battery/network changes, overflow fitting, accessibility, upgrade migration, numeric bounds, persistence, and switching fixed width off/on.
+- Existing tray-formatting checks still cover all 512 metric selections. Release build and interface/update-checker checks passed.
+
+Apple Silicon; macOS 12.4 or later. The app remains ad-hoc signed and is not notarized.
+
+DMG SHA-256: `d1281336b3be10e1432723dc29bbc75e5d1d733d7e75c7c858dfa875f8989ee3`.
+
+[Changes since 1.2](https://github.com/theodor-ubp/sysdash/compare/v1.2...v1.3)
+
+---
+
 # UP Sysdash 1.2
 
 Version **1.2**, build **3** — 26 October 2026.

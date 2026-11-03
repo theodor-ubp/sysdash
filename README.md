@@ -78,6 +78,7 @@ You only do this once.
 - A persistent Example/Live preview shows the tray text
 
 **Text & spacing**
+- Fixed width for the whole menu-bar stats item is enabled by default (240 points); choose 80–600 points or turn it off. Overflowing text fits inside the reserved width so changing readings do not move neighboring icons.
 - Choose proportional or monospaced text, font size/weight, character width and tracking
 - Adjust processor-label/value gaps, group spacing, separators, temperature suffixes and labels
 - Normal system font, degree symbols and compact processor labels are the defaults: `C35° G25°`, or `C5% 35° G10% 25°` with usage enabled
@@ -120,6 +121,7 @@ Tests/run-cpu-tier-tests.sh
 Tests/run-interface-tests.sh
 Tests/run-meter-containment-tests.sh
 Tests/run-menu-bar-tests.sh
+Tests/run-menu-bar-width-tests.sh Tests/Fixtures/m6.json
 Tests/run-update-checker-tests.sh
 ```
 
@@ -135,7 +137,7 @@ The menu bar uses the normal proportional system font by default and groups proc
 
 Cards can use a line graph, area graph, level bar, segmented bar or value only. Choose a style for all cards or customize each card, including every available E/P/S tier. Styles persist independently of tray preferences. Current bars use the same normalized scales as history graphs; Settings explains those scales. Unavailable telemetry has no chart or level fill. The existing line graphs remain the default.
 
-Package a release with `scripts/build-dmg.sh 1.2`. The script builds the app and creates a DMG with a small PNG background and saved Finder layout. Pass a validated `.app` path as the second argument to package that exact build. Packaging dependencies stay in `.artifacts/`.
+Package a release with `scripts/build-dmg.sh 1.3`. The script builds the app and creates a DMG with a small PNG background and saved Finder layout. Pass a validated `.app` path as the second argument to package that exact build. Packaging dependencies stay in `.artifacts/`.
 
 ---
 

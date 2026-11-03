@@ -31,6 +31,8 @@ struct TrayAppearance: Codable, Equatable {
     var fullProcessorLabels = false
     var systemLabels = false
     var batterySymbols = true
+    var fixedWidthEnabled = true
+    var fixedWidth = 240.0
 
     var normalized: Self {
         var result = self
@@ -40,12 +42,14 @@ struct TrayAppearance: Codable, Equatable {
         result.processorLabelSpacing = min(max(processorLabelSpacing, 0), 3)
         result.valueSpacing = min(max(valueSpacing, 0), 3)
         result.groupSpacing = min(max(groupSpacing, 0), 4)
+        result.fixedWidth = fixedWidth.isFinite ? min(max(fixedWidth, 80), 600) : 240
         return result
     }
 
     private enum CodingKeys: String, CodingKey {
         case monospaced, fontSize, weight, characterWidth, characterSpacing
         case processorLabelSpacing, valueSpacing, groupSpacing, temperatureUnit, fullProcessorLabels, systemLabels, batterySymbols
+        case fixedWidthEnabled, fixedWidth
     }
 }
 
@@ -65,6 +69,8 @@ extension TrayAppearance {
         fullProcessorLabels = (try? c.decode(Bool.self, forKey: .fullProcessorLabels)) ?? fullProcessorLabels
         systemLabels = (try? c.decode(Bool.self, forKey: .systemLabels)) ?? systemLabels
         batterySymbols = (try? c.decode(Bool.self, forKey: .batterySymbols)) ?? batterySymbols
+        fixedWidthEnabled = (try? c.decode(Bool.self, forKey: .fixedWidthEnabled)) ?? fixedWidthEnabled
+        fixedWidth = (try? c.decode(Double.self, forKey: .fixedWidth)) ?? fixedWidth
         self = normalized
     }
 }

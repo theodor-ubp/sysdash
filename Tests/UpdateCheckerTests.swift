@@ -40,10 +40,11 @@ enum UpdateCheckerTests {
             let latest = legacy.tagName.drop(while: { $0 == "v" }).description
             precondition(latest.compare("1.0", options: .numeric) == .orderedDescending)
             precondition(latest.compare("1.1", options: .numeric) == .orderedDescending)
-            precondition(published.tagName == "v1.2")
-            precondition(published.downloadURL?.lastPathComponent == "up-sysdash-v1.2.dmg")
-            precondition(published.version.compare("1.2", options: .numeric) == .orderedSame)
-            print("PASS: published GitHub latest response is detected by v1.0/v1.1 and supplies the direct v1.2 DMG; v1.2 is current")
+            precondition(latest.compare("1.2", options: .numeric) == .orderedDescending)
+            precondition(published.tagName == "v1.3")
+            precondition(published.downloadURL?.lastPathComponent == "up-sysdash-v1.3.dmg")
+            precondition(published.version.compare("1.3", options: .numeric) == .orderedSame)
+            print("PASS: published GitHub latest response is detected by v1.0/v1.1/v1.2 and supplies the direct v1.3 DMG; v1.3 is current")
         }
     }
 }
